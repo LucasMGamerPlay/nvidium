@@ -7,6 +7,7 @@ import me.cortex.nvidium.managers.SectionManager;
 import me.cortex.nvidium.lod.LodLevels;
 import me.cortex.nvidium.lod.LodSprites;
 import me.cortex.nvidium.lod.LodSystem;
+import me.cortex.nvidium.persist.MeshCompressor;
 import me.cortex.nvidium.persist.PersistentMesh;
 import me.cortex.nvidium.persist.PersistentMeshLoader;
 import me.cortex.nvidium.persist.PersistentSectionStore;
@@ -209,7 +210,8 @@ public class NvidiumWorldRenderer {
                 + ", GPU sections: " + this.sectionManager.getGpuSectionCount());
         if (this.persistentStore != null) {
             debugInfo.add("Disk: " + this.persistentStore.storedCount() + " sections, "
-                    + (this.persistentStore.diskBytes() / (1024 * 1024)) + "MB, wrQ: "
+                    + (this.persistentStore.diskBytes() / (1024 * 1024)) + "MB "
+                    + MeshCompressor.codecName() + "+quads, wrQ: "
                     + this.persistentStore.pendingWrites()
                     + (this.persistentLoader != null ? ", ldQ: " + this.persistentLoader.uploadQueue()
                     + ", loaded: " + this.persistentLoader.loadedFromDisk() : ""));
