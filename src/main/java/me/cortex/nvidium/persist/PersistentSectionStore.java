@@ -22,14 +22,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.zip.DataFormatException;
-import java.util.zip.Deflater;
-import java.util.zip.Inflater;
 
 public final class PersistentSectionStore {
     private static final int MAGIC = 0x4E565053; // NVPS
     private static final int INDEX_MAGIC = 0x4E565049; // NVPI
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     private final Path root;
     private final int stride;
@@ -292,7 +289,8 @@ public final class PersistentSectionStore {
     }
 
     private void writeMesh(DataOutputStream out, PersistentMesh mesh) throws IOException {
-        byte[] compressed = deflate(mesh.geometry);
+        byte[] compact = CompactGeometry.pack(mesh.geometry, this.stride, mesh.quads);
+        byte[] compressed = MeshCompressor.compress(compact);
         out.writeLong(mesh.sectionKey);
         out.writeInt(mesh.quads);
         out.writeInt(pack3(mesh.minX, mesh.minY, mesh.minZ));
@@ -300,7 +298,7 @@ public final class PersistentSectionStore {
         for (int i = 0; i < 8; i++) {
             out.writeInt(i < mesh.offsets.length ? mesh.offsets[i] : 0);
         }
-        out.writeInt(mesh.geometry.length);
+        out.writeInt(compact.length);
         out.writeInt(compressed.length);
         out.write(compressed);
     }
@@ -320,7 +318,8 @@ public final class PersistentSectionStore {
         if (compressed.length != compLen) {
             throw new IOException("Truncated mesh payload for " + key);
         }
-        byte[] geometry = inflate(compressed, rawLen);
+        byte[] compact = MeshCompressor.decompress(compressed, rawLen);
+        byte[] geometry = CompactGeometry.unpack(compact, this.stride, quads);
         return new PersistentMesh(
                 key,
                 quads,
@@ -475,43 +474,4 @@ public final class PersistentSectionStore {
         return (byte) (packed >> 16);
     }
 
-    private static byte[] deflate(byte[] input) {
-        Deflater deflater = new Deflater(Deflater.BEST_SPEED, true);
-        deflater.setInput(input);
-        deflater.finish();
-        byte[] buf = new byte[Math.max(1024, input.length / 4)];
-        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(input.length / 2);
-        while (!deflater.finished()) {
-            int n = deflater.deflate(buf);
-            if (n > 0) {
-                out.write(buf, 0, n);
-            }
-        }
-        deflater.end();
-        return out.toByteArray();
-    }
-
-    private static byte[] inflate(byte[] input, int rawLen) throws IOException {
-        Inflater inflater = new Inflater(true);
-        inflater.setInput(input);
-        byte[] output = new byte[rawLen];
-        try {
-            int got = 0;
-            while (got < rawLen && !inflater.finished()) {
-                int n = inflater.inflate(output, got, rawLen - got);
-                if (n == 0) {
-                    break;
-                }
-                got += n;
-            }
-            if (got != rawLen) {
-                throw new IOException("Inflated " + got + " bytes, expected " + rawLen);
-            }
-        } catch (DataFormatException e) {
-            throw new IOException("Failed to inflate mesh", e);
-        } finally {
-            inflater.end();
-        }
-        return output;
-    }
 }
