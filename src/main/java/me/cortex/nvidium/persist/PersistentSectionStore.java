@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class PersistentSectionStore {
     private static final int MAGIC = 0x4E565053; // NVPS
     private static final int INDEX_MAGIC = 0x4E565049; // NVPI
-    private static final int VERSION = 2;
+    private static final int VERSION = 3;
 
     private final Path root;
     private final int stride;
@@ -282,7 +282,12 @@ public final class PersistentSectionStore {
             }
             int count = in.readInt();
             for (int i = 0; i < count; i++) {
-                meshes.add(readMesh(in));
+                try {
+                    meshes.add(readMesh(in));
+                } catch (Exception e) {
+                    Nvidium.LOGGER.error("Skipping corrupt persistent section in {}", file.getFileName(), e);
+                    break;
+                }
             }
         }
         return meshes;

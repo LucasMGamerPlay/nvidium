@@ -48,12 +48,24 @@ public final class MeshCompressor {
             return new byte[0];
         }
         if (ZSTD) {
-            byte[] out = new byte[rawLen];
-            long n = com.github.luben.zstd.Zstd.decompress(out, input);
-            if (n != rawLen) {
-                throw new IOException("zstd size mismatch: " + n + " vs " + rawLen);
+            try {
+                byte[] out = new byte[rawLen];
+                long n = com.github.luben.zstd.Zstd.decompress(out, input);
+                if (n != rawLen) {
+                    throw new IOException("zstd size mismatch: " + n + " vs " + rawLen);
+                }
+                return out;
+            } catch (Exception first) {
+                try {
+                    byte[] out = com.github.luben.zstd.Zstd.decompress(input, rawLen);
+                    if (out.length != rawLen) {
+                        throw new IOException("zstd size mismatch: " + out.length + " vs " + rawLen);
+                    }
+                    return out;
+                } catch (Exception second) {
+                    throw new IOException("zstd decompress failed", first);
+                }
             }
-            return out;
         }
         return inflate(input, rawLen);
     }
