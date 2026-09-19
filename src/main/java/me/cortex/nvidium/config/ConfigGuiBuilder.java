@@ -76,31 +76,6 @@ public class ConfigGuiBuilder implements ConfigEntryPoint {
         );
 
         nvidiumOptionPage.addOption(
-                builder.createBooleanOption(Identifier.parse("nvidium:enable_lod"))
-                        .setName(Component.translatable("nvidium.options.enable_lod.name"))
-                        .setTooltip(Component.translatable("nvidium.options.enable_lod.tooltip"))
-                        .setDefaultValue(true)
-                        .setImpact(OptionImpact.HIGH)
-                        .setEnabledProvider(c -> Nvidium.IS_ENABLED)
-                        .setBinding(v -> store.getData().enable_lod = v, () -> store.getData().lodEnabled())
-                        .setFlags(OptionFlag.REQUIRES_RENDERER_RELOAD)
-                        .setStorageHandler(this.saveConfig)
-        );
-
-        nvidiumOptionPage.addOption(
-                builder.createIntegerOption(Identifier.parse("nvidium:lod_start_chunks"))
-                        .setName(Component.translatable("nvidium.options.lod_start_chunks.name"))
-                        .setTooltip(Component.translatable("nvidium.options.lod_start_chunks.tooltip"))
-                        .setImpact(OptionImpact.MEDIUM)
-                        .setEnabledProvider(c -> Nvidium.IS_ENABLED && store.getData().lodEnabled())
-                        .setBinding(v -> store.getData().lod_start_chunks = v, () -> store.getData().lodStartChunks())
-                        .setRange(8, 256, 8)
-                        .setDefaultValue(32)
-                        .setValueFormatter(x -> Component.literal(x + " chunks"))
-                        .setStorageHandler(this.saveConfig)
-        );
-
-        nvidiumOptionPage.addOption(
                 builder.createBooleanOption(Identifier.parse("nvidium:enable_temporal_coherence"))
                         .setName(Component.translatable("nvidium.options.enable_temporal_coherence.name"))
                         .setTooltip(Component.translatable("nvidium.options.enable_temporal_coherence.tooltip"))

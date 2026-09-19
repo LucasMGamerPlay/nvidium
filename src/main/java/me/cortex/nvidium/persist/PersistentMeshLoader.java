@@ -3,8 +3,6 @@ package me.cortex.nvidium.persist;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import me.cortex.nvidium.Nvidium;
-import me.cortex.nvidium.lod.LodLevels;
-import me.cortex.nvidium.lod.LodSystem;
 import me.cortex.nvidium.managers.SectionManager;
 import net.minecraft.core.SectionPos;
 
@@ -23,8 +21,6 @@ public final class PersistentMeshLoader {
 
     private final PersistentSectionStore store;
     private final SectionManager sectionManager;
-    private final LodSystem lodSystem;
-    private volatile int camCX, camCY, camCZ;
     private final BlockingQueue<Long> regionRequests = new ArrayBlockingQueue<>(256);
     private final BlockingQueue<PersistentMesh> ready = new ArrayBlockingQueue<>(READY_CAPACITY);
     private final LongOpenHashSet requestedRegions = new LongOpenHashSet();
@@ -34,30 +30,16 @@ public final class PersistentMeshLoader {
     private final Thread thread;
     private int tick;
 
-    public PersistentMeshLoader(PersistentSectionStore store, SectionManager sectionManager, LodSystem lodSystem) {
+    public PersistentMeshLoader(PersistentSectionStore store, SectionManager sectionManager) {
         this.store = store;
         this.sectionManager = sectionManager;
-        this.lodSystem = lodSystem;
         this.thread = new Thread(this::runLoader, "nvidium-persist-load");
         this.thread.setDaemon(true);
         this.thread.start();
     }
 
     public void tick(double camX, double camY, double camZ, int usedMb, int maxMb) {
-        this.camCX = SectionPos.blockToSectionCoord((int) Math.floor(camX));
-        this.camCY = SectionPos.blockToSectionCoord((int) Math.floor(camY));
-        this.camCZ = SectionPos.blockToSectionCoord((int) Math.floor(camZ));
         drainUploads(usedMb, maxMb);
-        if (this.lodSystem != null && (this.tick % 5) == 0) {
-            var regions = this.lodSystem.reconcileStale(this.camCX, this.camCZ, 48);
-            if (!regions.isEmpty()) {
-                synchronized (this.requestedRegions) {
-                    for (long regionKey : regions) {
-                        this.requestedRegions.remove(regionKey);
-                    }
-                }
-            }
-        }
         if ((this.tick++ % 5) == 0) {
             enqueueNearbyRegions(camX, camY, camZ, usedMb, maxMb);
         }
@@ -101,17 +83,10 @@ public final class PersistentMeshLoader {
             }
             this.uploadQueueSize.decrementAndGet();
             if (this.sectionManager.hasSection(mesh.sectionKey)) {
-                if (this.lodSystem == null || this.lodSystem.lodOf(mesh.sectionKey) == mesh.lod) {
-                    continue;
-                }
-                this.sectionManager.evictSection(mesh.sectionKey);
-                this.lodSystem.onEvicted(mesh.sectionKey);
+                continue;
             }
             if (this.sectionManager.uploadPersistedMesh(mesh)) {
                 this.loadedFromDisk.incrementAndGet();
-                if (this.lodSystem != null) {
-                    this.lodSystem.onUploaded(mesh.sectionKey, mesh.lod);
-                }
             }
         }
     }
@@ -174,9 +149,6 @@ public final class PersistentMeshLoader {
             if (!this.sectionManager.hasSection(key)) {
                 return false;
             }
-            if (this.lodSystem != null && this.lodSystem.lodOf(key) != LodLevels.forSection(key, this.camCX, this.camCZ)) {
-                return false;
-            }
         }
         return true;
     }
@@ -207,14 +179,7 @@ public final class PersistentMeshLoader {
                     if (!this.running.get()) {
                         return;
                     }
-                    PersistentMesh chosen = mesh;
-                    if (this.lodSystem != null) {
-                        chosen = this.lodSystem.pickMesh(mesh.sectionKey, mesh, this.camCX, this.camCZ);
-                    }
-                    if (chosen == null) {
-                        continue;
-                    }
-                    this.ready.put(chosen);
+                    this.ready.put(mesh);
                     this.uploadQueueSize.incrementAndGet();
                 }
             } catch (InterruptedException e) {

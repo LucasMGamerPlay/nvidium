@@ -4,9 +4,6 @@ import com.mojang.blaze3d.textures.GpuSampler;
 import me.cortex.nvidium.config.TranslucencySortingLevel;
 import me.cortex.nvidium.gl.RenderDevice;
 import me.cortex.nvidium.managers.SectionManager;
-import me.cortex.nvidium.lod.LodLevels;
-import me.cortex.nvidium.lod.LodSprites;
-import me.cortex.nvidium.lod.LodSystem;
 import me.cortex.nvidium.persist.MeshCompressor;
 import me.cortex.nvidium.persist.PersistentMesh;
 import me.cortex.nvidium.persist.PersistentMeshLoader;
@@ -27,7 +24,6 @@ import net.caffeinemc.mods.sodium.client.render.chunk.vertex.format.ChunkMeshFor
 import net.caffeinemc.mods.sodium.client.render.viewport.Viewport;
 import net.caffeinemc.mods.sodium.client.util.FogParameters;
 import net.minecraft.client.Camera;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.SectionPos;
@@ -53,7 +49,6 @@ public class NvidiumWorldRenderer {
     private final RenderPipeline renderPipeline;
     private final PersistentSectionStore persistentStore;
     private final PersistentMeshLoader persistentLoader;
-    private final LodSystem lodSystem;
 
 
     //Max memory that the gpu can use to store geometry in mb
@@ -75,33 +70,18 @@ public class NvidiumWorldRenderer {
 
         PersistentSectionStore store = null;
         PersistentMeshLoader loader = null;
-        LodSystem lod = null;
         if (Nvidium.config.diskPersistence() && level != null) {
             try {
                 Path root = PersistentWorldPaths.resolve(level);
                 store = new PersistentSectionStore(root, stride);
-                if (Nvidium.config.lodEnabled()) {
-                    lod = new LodSystem(root, this.sectionManager);
-                }
-                loader = new PersistentMeshLoader(store, this.sectionManager, lod);
-                LodSystem lodRef = lod;
+                loader = new PersistentMeshLoader(store, this.sectionManager);
                 PersistentMeshLoader loaderRef = loader;
-                this.sectionManager.setRegionRemovedCallback(rk -> {
-                    loaderRef.allowReload(rk);
-                    if (lodRef != null) {
-                        lodRef.forgetRegion(rk);
-                    }
-                });
-                LodSprites.refresh();
+                this.sectionManager.setRegionRemovedCallback(loaderRef::allowReload);
             } catch (IOException e) {
                 Nvidium.LOGGER.error("Failed to open persistent mesh store, continuing without disk cache", e);
                 if (loader != null) {
                     loader.close();
                     loader = null;
-                }
-                if (lod != null) {
-                    lod.close();
-                    lod = null;
                 }
                 if (store != null) {
                     store.close();
@@ -111,7 +91,6 @@ public class NvidiumWorldRenderer {
         }
         this.persistentStore = store;
         this.persistentLoader = loader;
-        this.lodSystem = lod;
     }
 
     public void enqueueRegionSort(int regionId) {
@@ -121,9 +100,6 @@ public class NvidiumWorldRenderer {
     public void delete() {
         if (this.persistentLoader != null) {
             this.persistentLoader.close();
-        }
-        if (this.lodSystem != null) {
-            this.lodSystem.close();
         }
         if (this.persistentStore != null) {
             this.persistentStore.close();
@@ -166,28 +142,11 @@ public class NvidiumWorldRenderer {
     public void uploadBuildResult(BuilderTaskOutput buildOutput) {
         if (buildOutput instanceof ChunkBuildOutput chunkBuildOutput) {
             persistBuildResult(chunkBuildOutput);
-            long sectionKey = SectionPos.asLong(
-                    chunkBuildOutput.section.getChunkX(),
-                    chunkBuildOutput.section.getChunkY(),
-                    chunkBuildOutput.section.getChunkZ());
-            if (useFullMeshOnGpu(sectionKey)) {
-                this.sectionManager.uploadChunkBuildResult(chunkBuildOutput);
-                if (this.lodSystem != null) {
-                    this.lodSystem.onUploaded(sectionKey, (byte) 0);
-                }
-            } else {
-                demoteFullMeshInLodRing(sectionKey);
-            }
+            this.sectionManager.uploadChunkBuildResult(chunkBuildOutput);
         }
         if (buildOutput instanceof ChunkSortOutput chunkSortOutput && chunkSortOutput.containsNewIndexData() &&
                 Nvidium.config.translucency_sorting_level == TranslucencySortingLevel.SODIUM) {
-            long sectionKey = SectionPos.asLong(
-                    chunkSortOutput.section.getChunkX(),
-                    chunkSortOutput.section.getChunkY(),
-                    chunkSortOutput.section.getChunkZ());
-            if (useFullMeshOnGpu(sectionKey)) {
-                this.sectionManager.uploadChunkSort(chunkSortOutput);
-            }
+            this.sectionManager.uploadChunkSort(chunkSortOutput);
         }
     }
 
@@ -217,9 +176,6 @@ public class NvidiumWorldRenderer {
                     + ", loaded: " + this.persistentLoader.loadedFromDisk() : ""));
         } else {
             debugInfo.add("Disk: off");
-        }
-        if (this.lodSystem != null) {
-            debugInfo.add(this.lodSystem.debugLine());
         }
         debugInfo.add("Regions: " + sectionManager.getRegionManager().regionCount() + "/" + sectionManager.getRegionManager().maxRegions());
         this.renderPipeline.addDebugInfo(debugInfo);
@@ -260,9 +216,6 @@ public class NvidiumWorldRenderer {
         var output = ((IRepackagedResult) result).getOutput();
         if (output == null || output.quads() == 0) {
             this.persistentStore.remove(sectionKey);
-            if (this.lodSystem != null) {
-                this.lodSystem.ingest(Minecraft.getInstance().level, result.section.getChunkX(), result.section.getChunkY(), result.section.getChunkZ());
-            }
             return;
         }
         try {
@@ -270,46 +223,5 @@ public class NvidiumWorldRenderer {
         } catch (Exception e) {
             Nvidium.LOGGER.error("Failed to snapshot section {} for disk cache", sectionKey, e);
         }
-        if (this.lodSystem != null) {
-            var level = Minecraft.getInstance().level;
-            if (level != null) {
-                this.lodSystem.ingest(level, result.section.getChunkX(), result.section.getChunkY(), result.section.getChunkZ());
-            }
-        }
-    }
-
-    private boolean useFullMeshOnGpu(long sectionKey) {
-        if (this.lodSystem == null || !Nvidium.config.lodEnabled()) {
-            return true;
-        }
-        int[] cam = cameraChunkXZ();
-        if (cam == null) {
-            return true;
-        }
-        return LodLevels.forSection(sectionKey, cam[0], cam[1]) == 0;
-    }
-
-    private void demoteFullMeshInLodRing(long sectionKey) {
-        boolean evicted = false;
-        if (this.lodSystem != null && this.sectionManager.hasSection(sectionKey) && this.lodSystem.lodOf(sectionKey) <= 0) {
-            this.sectionManager.evictSection(sectionKey);
-            this.lodSystem.onEvicted(sectionKey);
-            evicted = true;
-        }
-        if (this.persistentLoader != null && (evicted || !this.sectionManager.hasSection(sectionKey))) {
-            this.persistentLoader.allowReload(PersistentMesh.regionKey(sectionKey));
-        }
-    }
-
-    private static int[] cameraChunkXZ() {
-        var mc = Minecraft.getInstance();
-        if (mc.gameRenderer == null) {
-            return null;
-        }
-        var pos = mc.gameRenderer.mainCamera().position();
-        return new int[]{
-                SectionPos.blockToSectionCoord((int) Math.floor(pos.x)),
-                SectionPos.blockToSectionCoord((int) Math.floor(pos.z))
-        };
     }
 }

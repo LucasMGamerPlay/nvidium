@@ -38,17 +38,6 @@ public class NvidiumConfig {
         return this.enable_disk_persistence == null || this.enable_disk_persistence;
     }
 
-    public Boolean enable_lod = Boolean.TRUE;
-    public Integer lod_start_chunks = 32;
-
-    public boolean lodEnabled() {
-        return this.enable_lod == null || this.enable_lod;
-    }
-
-    public int lodStartChunks() {
-        return this.lod_start_chunks == null ? 32 : Math.max(8, this.lod_start_chunks);
-    }
-
     public boolean render_fog = true;
     public boolean use_sodium_vertex_format = false;
     public boolean cull_degenerate_triangles = true;
