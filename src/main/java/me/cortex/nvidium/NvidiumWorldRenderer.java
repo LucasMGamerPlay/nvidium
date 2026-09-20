@@ -5,6 +5,8 @@ import me.cortex.nvidium.config.TranslucencySortingLevel;
 import me.cortex.nvidium.gl.RenderDevice;
 import me.cortex.nvidium.managers.SectionManager;
 import me.cortex.nvidium.persist.MeshCompressor;
+import me.cortex.nvidium.persist.PersistDirty;
+import me.cortex.nvidium.persist.PersistImport;
 import me.cortex.nvidium.persist.PersistentMesh;
 import me.cortex.nvidium.persist.PersistentMeshLoader;
 import me.cortex.nvidium.persist.PersistentSectionStore;
@@ -173,7 +175,11 @@ public class NvidiumWorldRenderer {
                     + MeshCompressor.codecName() + "+quads, wrQ: "
                     + this.persistentStore.pendingWrites()
                     + (this.persistentLoader != null ? ", ldQ: " + this.persistentLoader.uploadQueue()
-                    + ", loaded: " + this.persistentLoader.loadedFromDisk() : ""));
+                    + ", loaded: " + this.persistentLoader.loadedFromDisk() : "")
+                    + ", dirty: " + this.persistentStore.remeshWrites()
+                    + ", edits: " + PersistDirty.events()
+                    + ", pack: " + this.persistentStore.packSignature()
+                    + (PersistImport.running() ? ", " + PersistImport.statusLine() : ""));
         } else {
             debugInfo.add("Disk: off");
         }
@@ -206,6 +212,10 @@ public class NvidiumWorldRenderer {
 
     public int getMaxGeometryMemory() {
         return (int) max_geometry_memory;
+    }
+
+    public PersistentSectionStore getPersistentStore() {
+        return this.persistentStore;
     }
 
     private void persistBuildResult(ChunkBuildOutput result) {

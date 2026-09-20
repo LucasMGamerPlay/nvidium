@@ -42,6 +42,8 @@ public final class PersistentSectionStore {
     private volatile boolean closed;
     private volatile long diskBytes;
     private volatile int writesCompleted;
+    private final java.util.concurrent.atomic.AtomicInteger remeshWrites = new java.util.concurrent.atomic.AtomicInteger();
+    private final String packSignature;
 
     public PersistentSectionStore(Path root, int stride) throws IOException {
         this.root = root;
@@ -52,9 +54,11 @@ public final class PersistentSectionStore {
             thread.setDaemon(true);
             return thread;
         });
+        this.packSignature = PackSignature.compute();
+        enforcePackSignature();
         loadIndex();
         this.diskBytes = computeDiskBytes();
-        Nvidium.LOGGER.info("Opened persistent mesh store at {} ({} sections)", root, this.knownKeys.size());
+        Nvidium.LOGGER.info("Opened persistent mesh store at {} ({} sections, pack {})", root, this.knownKeys.size(), this.packSignature);
     }
 
     public int storedCount() {
@@ -73,6 +77,18 @@ public final class PersistentSectionStore {
 
     public int writesCompleted() {
         return this.writesCompleted;
+    }
+
+    public int remeshWrites() {
+        return this.remeshWrites.get();
+    }
+
+    public void touchDirty(long sectionKey) {
+        this.remeshWrites.incrementAndGet();
+    }
+
+    public String packSignature() {
+        return this.packSignature;
     }
 
     public LongSet regionKeys() {
@@ -96,6 +112,7 @@ public final class PersistentSectionStore {
             this.deleted.remove(mesh.sectionKey);
         }
         this.dirty.put(mesh.sectionKey, mesh);
+        this.remeshWrites.incrementAndGet();
         synchronized (this.indexLock) {
             this.knownKeys.add(mesh.sectionKey);
         }
@@ -333,6 +350,38 @@ public final class PersistentSectionStore {
                 unpackX(sizePacked), unpackY(sizePacked), unpackZ(sizePacked),
                 geometry
         );
+    }
+
+    private void enforcePackSignature() throws IOException {
+        Path sigFile = this.root.resolve("pack.sig");
+        if (Files.exists(sigFile)) {
+            String previous = Files.readString(sigFile).trim();
+            if (!previous.isEmpty() && !previous.equals(this.packSignature)) {
+                Nvidium.LOGGER.warn("Resource pack or block atlas changed ({} -> {}), wiping mesh cache at {}",
+                        previous, this.packSignature, this.root);
+                wipeCacheFiles();
+            }
+        }
+        Files.writeString(sigFile, this.packSignature + "\n");
+    }
+
+    private void wipeCacheFiles() throws IOException {
+        if (!Files.isDirectory(this.root)) {
+            return;
+        }
+        try (var stream = Files.list(this.root)) {
+            stream.filter(Files::isRegularFile).forEach(path -> {
+                String name = path.getFileName().toString();
+                if (name.equals("pack.sig")) {
+                    return;
+                }
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException e) {
+                    Nvidium.LOGGER.error("Failed to delete {}", path.getFileName(), e);
+                }
+            });
+        }
     }
 
     private void loadIndex() throws IOException {

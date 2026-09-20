@@ -19,6 +19,9 @@
   "icon": "assets/nvidium/nvidium.png",
   "environment": "client",
   "entrypoints": {
+    "client": [
+      "me.cortex.nvidium.NvidiumClient"
+    ],
     "sodium:config_api_user": [
       "me.cortex.nvidium.config.ConfigGuiBuilder"
     ]

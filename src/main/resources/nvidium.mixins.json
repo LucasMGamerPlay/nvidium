@@ -6,6 +6,7 @@
     "minecraft.CommandEncoderAccessor",
     "minecraft.GlCommandEncoderAccessor",
     "minecraft.MixinCamera",
+    "minecraft.MixinClientLevel",
     "minecraft.MixinFogRenderer",
     "minecraft.MixinGlDevice",
     "minecraft.TextureAtlasAccessor",
