@@ -102,7 +102,7 @@ public final class PersistentMeshLoader {
         int camCX = SectionPos.blockToSectionCoord((int) Math.floor(camX));
         int camCY = SectionPos.blockToSectionCoord((int) Math.floor(camY));
         int camCZ = SectionPos.blockToSectionCoord((int) Math.floor(camZ));
-        int keep = Nvidium.config.keepUntilVramLimit() ? 512 : Nvidium.config.gpuKeepChunks();
+        int keep = Nvidium.farTerrainKeepChunks();
 
         LongArrayList candidates = new LongArrayList();
         for (long regionKey : this.store.regionKeys()) {

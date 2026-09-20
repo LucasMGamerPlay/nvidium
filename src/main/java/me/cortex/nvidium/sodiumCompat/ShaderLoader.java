@@ -1,6 +1,5 @@
 package me.cortex.nvidium.sodiumCompat;
 
-import com.mojang.blaze3d.preprocessor.GlslPreprocessor;
 import me.cortex.nvidium.Nvidium;
 import me.cortex.nvidium.config.StatisticsLoggingLevel;
 import me.cortex.nvidium.config.TranslucencySortingLevel;
@@ -10,12 +9,12 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.apache.commons.io.IOUtils;
-import org.jspecify.annotations.NonNull;
-import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.Reader;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class ShaderLoader {
     public static String parse(Identifier path) {
@@ -58,18 +57,37 @@ public class ShaderLoader {
 
         builder.define("TEXTURE_MAX_SCALE", String.valueOf(NvidiumCompactChunkVertex.TEXTURE_MAX_VALUE));
 
-        GlslPreprocessor preprocessor = new GlslPreprocessor() {
-            @Override
-            public @Nullable String applyImport(boolean isRelative, @NonNull String path) {
-                return ShaderLoader.resolve(Identifier.parse(path));
-            }
-        };
-
         String source = ShaderLoader.resolve(path);
-        source = String.join("", preprocessor.process(source));
-        source = GlslPreprocessor.injectDefines(source, builder.build());
+        source = processMojImports(source);
+        source = injectAfterVersion(source, builder.build().asSourceDirectives());
 
         return source;
+    }
+
+    private static final Pattern VERSION = Pattern.compile("(?m)^\\s*#version\\b[^\\n]*\\n");
+    private static final Pattern MOJ_IMPORT = Pattern.compile("^\\s*#moj_import\\s+(?:<([^>]+)>|\"([^\"]+)\")\\s*$", Pattern.MULTILINE);
+
+    private static String injectAfterVersion(String source, String defines) {
+        if (defines == null || defines.isBlank()) {
+            return source;
+        }
+        Matcher matcher = VERSION.matcher(source);
+        if (matcher.find()) {
+            return source.substring(0, matcher.end()) + defines + source.substring(matcher.end());
+        }
+        return defines + source;
+    }
+
+    private static String processMojImports(String source) {
+        Matcher matcher = MOJ_IMPORT.matcher(source);
+        StringBuilder out = new StringBuilder();
+        while (matcher.find()) {
+            String imported = matcher.group(1) != null ? matcher.group(1) : matcher.group(2);
+            String replacement = processMojImports(ShaderLoader.resolve(Identifier.parse(imported)));
+            matcher.appendReplacement(out, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(out);
+        return out.toString();
     }
 
     public static String resolve(Identifier id) {

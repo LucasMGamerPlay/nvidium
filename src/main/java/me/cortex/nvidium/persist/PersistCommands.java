@@ -44,7 +44,7 @@ public final class PersistCommands {
     private static int importRadius(FabricClientCommandSource source, int radius) {
         int n = PersistImport.startRadius(radius);
         if (n == -1) {
-            source.sendError(Component.literal("Import only works in singleplayer with a world loaded"));
+            source.sendError(Component.literal("Import only works in singleplayer. On a server, walk around — meshes still persist."));
             return 0;
         }
         if (n == -2) {
@@ -60,7 +60,7 @@ public final class PersistCommands {
     private static int importAll(FabricClientCommandSource source) {
         int n = PersistImport.startAllRegions();
         if (n == -1) {
-            source.sendError(Component.literal("Import only works in singleplayer with a world loaded"));
+            source.sendError(Component.literal("Import only works in singleplayer. On a server, walk around — meshes still persist."));
             return 0;
         }
         if (n == -2) {
@@ -83,6 +83,9 @@ public final class PersistCommands {
             return 0;
         }
         Path root = PersistentWorldPaths.resolve(mc.level);
+        if (!mc.hasSingleplayerServer() && root.getParent() != null) {
+            root = root.getParent();
+        }
         try {
             if (Files.exists(root)) {
                 try (var walk = Files.walk(root)) {

@@ -1,6 +1,6 @@
 package me.cortex.nvidium;
 
-import com.mojang.blaze3d.textures.GpuSampler;
+import com.mojang.renderpearl.api.textures.GpuSampler;
 import it.unimi.dsi.fastutil.ints.*;
 import me.cortex.nvidium.config.StatisticsLoggingLevel;
 import me.cortex.nvidium.config.TranslucencySortingLevel;
@@ -245,8 +245,8 @@ public class RenderPipeline {
             IntSortedSet regions = new IntAVLTreeSet();
             for (int i = 0; i < rm.maxRegionIndex(); i++) {
                 if (!rm.regionExists(i)) continue;
-                if (!Nvidium.config.keepUntilVramLimit()
-                        && !rm.withinSquare(Nvidium.config.gpuKeepChunks() + 4, i, chunkPos.x, chunkPos.y, chunkPos.z)) {
+                if (!Nvidium.keepUntilVramLimit()
+                        && !rm.withinSquare(Nvidium.farTerrainKeepChunks() + 4, i, chunkPos.x, chunkPos.y, chunkPos.z)) {
                     removeRegion(i);
                     continue;
                 }

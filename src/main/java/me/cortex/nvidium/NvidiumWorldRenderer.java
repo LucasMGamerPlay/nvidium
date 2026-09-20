@@ -1,6 +1,6 @@
 package me.cortex.nvidium;
 
-import com.mojang.blaze3d.textures.GpuSampler;
+import com.mojang.renderpearl.api.textures.GpuSampler;
 import me.cortex.nvidium.config.TranslucencySortingLevel;
 import me.cortex.nvidium.gl.RenderDevice;
 import me.cortex.nvidium.managers.SectionManager;
@@ -11,6 +11,7 @@ import me.cortex.nvidium.persist.PersistentMesh;
 import me.cortex.nvidium.persist.PersistentMeshLoader;
 import me.cortex.nvidium.persist.PersistentSectionStore;
 import me.cortex.nvidium.persist.PersistentWorldPaths;
+import me.cortex.nvidium.sodiumCompat.FarLodMods;
 import me.cortex.nvidium.sodiumCompat.IRepackagedResult;
 import me.cortex.nvidium.sodiumCompat.NvidiumCompactChunkVertex;
 import me.cortex.nvidium.util.DownloadTaskStream;
@@ -165,11 +166,13 @@ public class NvidiumWorldRenderer {
                         this.sectionManager.terrainAreana.getAllocatedMB() :
                         this.sectionManager.terrainAreana.getUsedMB())
                 + "/"+ this.max_geometry_memory + String.format(", F: %.2f", sectionManager.terrainAreana.getFragmentation()*100));
-        debugInfo.add("Keep: " + (Nvidium.config.keepUntilVramLimit()
+        debugInfo.add("Keep: " + (Nvidium.keepUntilVramLimit()
                 ? "all (VRAM)"
-                : Nvidium.config.gpuKeepChunks() + " chunks")
+                : Nvidium.farTerrainKeepChunks() + " chunks")
+                + (FarLodMods.LOADED ? ", " + FarLodMods.label() + " coexist" : "")
                 + ", GPU sections: " + this.sectionManager.getGpuSectionCount());
         if (this.persistentStore != null) {
+            var level = net.minecraft.client.Minecraft.getInstance().level;
             debugInfo.add("Disk: " + this.persistentStore.storedCount() + " sections, "
                     + (this.persistentStore.diskBytes() / (1024 * 1024)) + "MB "
                     + MeshCompressor.codecName() + "+quads, wrQ: "
@@ -179,6 +182,7 @@ public class NvidiumWorldRenderer {
                     + ", dirty: " + this.persistentStore.remeshWrites()
                     + ", edits: " + PersistDirty.events()
                     + ", pack: " + this.persistentStore.packSignature()
+                    + ", " + PersistentWorldPaths.describe(level)
                     + (PersistImport.running() ? ", " + PersistImport.statusLine() : ""));
         } else {
             debugInfo.add("Disk: off");

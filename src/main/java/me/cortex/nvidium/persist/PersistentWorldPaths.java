@@ -2,6 +2,7 @@ package me.cortex.nvidium.persist;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.level.storage.LevelResource;
 
@@ -18,12 +19,39 @@ public final class PersistentWorldPaths {
             Path worldRoot = mc.getSingleplayerServer().getWorldPath(LevelResource.ROOT);
             return worldRoot.resolve("nvidium-persistent").resolve(dimension);
         }
-        String server = "unknown";
-        var data = mc.getCurrentServer();
-        if (data != null && data.ip != null && !data.ip.isBlank()) {
-            server = sanitize(data.ip);
+        return mc.gameDirectory.toPath()
+                .resolve("nvidium-persistent")
+                .resolve("mp")
+                .resolve(serverFolder(mc))
+                .resolve(dimension);
+    }
+
+    public static String describe(ClientLevel level) {
+        if (level == null) {
+            return "none";
         }
-        return mc.gameDirectory.toPath().resolve("nvidium-persistent").resolve(server).resolve(dimension);
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.hasSingleplayerServer() && mc.getSingleplayerServer() != null) {
+            return "sp/" + dimensionFolder(level);
+        }
+        return "mp/" + serverFolder(mc) + "/" + dimensionFolder(level);
+    }
+
+    private static String serverFolder(Minecraft mc) {
+        ServerData data = mc.getCurrentServer();
+        if (data == null) {
+            return "unknown";
+        }
+        String ip = data.ip == null || data.ip.isBlank() ? "unknown" : data.ip.trim();
+        String name = data.name == null ? "" : data.name.trim();
+        String key = ip;
+        if (!name.isEmpty() && !name.equalsIgnoreCase(ip)) {
+            key = name + "_" + ip;
+        }
+        if (data.isLan()) {
+            key = "lan_" + key;
+        }
+        return sanitize(key);
     }
 
     private static String dimensionFolder(ClientLevel level) {
@@ -42,6 +70,9 @@ public final class PersistentWorldPaths {
             }
         }
         String cleaned = out.toString().toLowerCase(Locale.ROOT);
+        if (cleaned.length() > 80) {
+            cleaned = cleaned.substring(0, 80);
+        }
         return cleaned.isEmpty() ? "world" : cleaned;
     }
 }
