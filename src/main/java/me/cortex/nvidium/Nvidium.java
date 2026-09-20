@@ -1,6 +1,7 @@
 package me.cortex.nvidium;
 
 import me.cortex.nvidium.config.NvidiumConfig;
+import me.cortex.nvidium.sodiumCompat.FarLodMods;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.util.Util;
@@ -49,5 +50,20 @@ public class Nvidium {
             LOGGER.info("Enabling Nvidium");
         }
         IS_ENABLED = IS_COMPATIBLE;
+    }
+
+    public static boolean keepUntilVramLimit() {
+        return !FarLodMods.LOADED && config.keepUntilVramLimit();
+    }
+
+    public static int farTerrainKeepChunks() {
+        int keep = config.gpuKeepChunks();
+        if (keepUntilVramLimit()) {
+            return 512;
+        }
+        if (FarLodMods.LOADED) {
+            return Math.min(keep, NvidiumConfig.VANILLA_KEEP_DISTANCE);
+        }
+        return keep;
     }
 }

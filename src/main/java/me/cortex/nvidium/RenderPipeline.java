@@ -1,6 +1,6 @@
 package me.cortex.nvidium;
 
-import com.mojang.blaze3d.textures.GpuSampler;
+import com.mojang.renderpearl.api.textures.GpuSampler;
 import it.unimi.dsi.fastutil.ints.*;
 import me.cortex.nvidium.config.StatisticsLoggingLevel;
 import me.cortex.nvidium.config.TranslucencySortingLevel;
@@ -245,9 +245,8 @@ public class RenderPipeline {
             IntSortedSet regions = new IntAVLTreeSet();
             for (int i = 0; i < rm.maxRegionIndex(); i++) {
                 if (!rm.regionExists(i)) continue;
-                if ((Nvidium.config.region_keep_distance != 257 && Nvidium.config.region_keep_distance != 32 &&
-                        Nvidium.config.region_keep_distance > Minecraft.getInstance().options.getEffectiveRenderDistance())
-                        && !rm.withinSquare(Nvidium.config.region_keep_distance+4, i, chunkPos.x, chunkPos.y, chunkPos.z)) {
+                if (!Nvidium.keepUntilVramLimit()
+                        && !rm.withinSquare(Nvidium.farTerrainKeepChunks() + 4, i, chunkPos.x, chunkPos.y, chunkPos.z)) {
                     removeRegion(i);
                     continue;
                 }

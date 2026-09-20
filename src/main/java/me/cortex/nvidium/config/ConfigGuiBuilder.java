@@ -9,7 +9,6 @@ import net.caffeinemc.mods.sodium.api.config.option.OptionImpact;
 import net.caffeinemc.mods.sodium.api.config.structure.ConfigBuilder;
 import net.caffeinemc.mods.sodium.client.gui.options.*;
 import net.caffeinemc.mods.sodium.client.gui.options.control.ControlValueFormatterImpls;
-import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
@@ -53,9 +52,26 @@ public class ConfigGuiBuilder implements ConfigEntryPoint {
                         .setImpact(OptionImpact.VARIES)
                         .setEnabledProvider(c -> Nvidium.IS_ENABLED)
                         .setBinding(v -> store.getData().region_keep_distance = v, () -> store.getData().region_keep_distance)
-                        .setRange(32, 257, 1)
-                        .setDefaultValue(32)
-                        .setValueFormatter(x -> Component.literal(x == 32 || x <= Minecraft.getInstance().options.getEffectiveRenderDistance() ? "Vanilla" : (x == 257 ? "Keep All" : x + " chunks")))
+                        .setRange(NvidiumConfig.VANILLA_KEEP_DISTANCE, NvidiumConfig.KEEP_ALL_DISTANCE, 1)
+                        .setDefaultValue(NvidiumConfig.KEEP_ALL_DISTANCE)
+                        .setValueFormatter(x -> Component.literal(
+                                x >= NvidiumConfig.KEEP_ALL_DISTANCE
+                                        ? "Keep All"
+                                        : (x <= NvidiumConfig.VANILLA_KEEP_DISTANCE
+                                        ? x + " chunks (vanilla)"
+                                        : x + " chunks")))
+                        .setStorageHandler(this.saveConfig)
+        );
+
+        nvidiumOptionPage.addOption(
+                builder.createBooleanOption(Identifier.parse("nvidium:enable_disk_persistence"))
+                        .setName(Component.translatable("nvidium.options.enable_disk_persistence.name"))
+                        .setTooltip(Component.translatable("nvidium.options.enable_disk_persistence.tooltip"))
+                        .setDefaultValue(true)
+                        .setImpact(OptionImpact.MEDIUM)
+                        .setEnabledProvider(c -> Nvidium.IS_ENABLED)
+                        .setBinding(v -> store.getData().enable_disk_persistence = v, () -> store.getData().diskPersistence())
+                        .setFlags(OptionFlag.REQUIRES_RENDERER_RELOAD)
                         .setStorageHandler(this.saveConfig)
         );
 

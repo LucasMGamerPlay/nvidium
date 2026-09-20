@@ -1,9 +1,18 @@
 package me.cortex.nvidium;
 
-import com.mojang.blaze3d.textures.GpuSampler;
+import com.mojang.renderpearl.api.textures.GpuSampler;
 import me.cortex.nvidium.config.TranslucencySortingLevel;
 import me.cortex.nvidium.gl.RenderDevice;
 import me.cortex.nvidium.managers.SectionManager;
+import me.cortex.nvidium.persist.MeshCompressor;
+import me.cortex.nvidium.persist.PersistDirty;
+import me.cortex.nvidium.persist.PersistImport;
+import me.cortex.nvidium.persist.PersistentMesh;
+import me.cortex.nvidium.persist.PersistentMeshLoader;
+import me.cortex.nvidium.persist.PersistentSectionStore;
+import me.cortex.nvidium.persist.PersistentWorldPaths;
+import me.cortex.nvidium.sodiumCompat.FarLodMods;
+import me.cortex.nvidium.sodiumCompat.IRepackagedResult;
 import me.cortex.nvidium.sodiumCompat.NvidiumCompactChunkVertex;
 import me.cortex.nvidium.util.DownloadTaskStream;
 import me.cortex.nvidium.util.UploadingBufferStream;
@@ -18,10 +27,14 @@ import net.caffeinemc.mods.sodium.client.render.chunk.vertex.format.ChunkMeshFor
 import net.caffeinemc.mods.sodium.client.render.viewport.Viewport;
 import net.caffeinemc.mods.sodium.client.util.FogParameters;
 import net.minecraft.client.Camera;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
+import net.minecraft.core.SectionPos;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix4fc;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -37,6 +50,8 @@ public class NvidiumWorldRenderer {
 
     private final SectionManager sectionManager;
     private final RenderPipeline renderPipeline;
+    private final PersistentSectionStore persistentStore;
+    private final PersistentMeshLoader persistentLoader;
 
 
     //Max memory that the gpu can use to store geometry in mb
@@ -44,7 +59,7 @@ public class NvidiumWorldRenderer {
     private long last_sample_time;
 
     //Note: the reason that asyncChunkTracker is passed in as an already constructed object is cause of the amount of argmuents it takes to construct it
-    public NvidiumWorldRenderer() {
+    public NvidiumWorldRenderer(ClientLevel level) {
         int frames = 3;
         //32 mb upload buffer
         this.uploadStream = new UploadingBufferStream(device, 32000000);
@@ -52,9 +67,33 @@ public class NvidiumWorldRenderer {
         this.downloadStream = new DownloadTaskStream(device, frames, 8000000);
 
         update_allowed_memory();
-        //this.sectionManager = new SectionManager(device, max_geometry_memory*1024*1024, uploadStream, 150, 24, CompactChunkVertex.STRIDE);
-        this.sectionManager = new SectionManager(device, max_geometry_memory*1024*1024, uploadStream, Nvidium.config.use_sodium_vertex_format ? ChunkMeshFormats.COMPACT.getVertexFormat().getVertexSize() : NvidiumCompactChunkVertex.STRIDE, this);
+        int stride = Nvidium.config.use_sodium_vertex_format ? ChunkMeshFormats.COMPACT.getVertexFormat().getVertexSize() : NvidiumCompactChunkVertex.STRIDE;
+        this.sectionManager = new SectionManager(device, max_geometry_memory*1024*1024, uploadStream, stride, this);
         this.renderPipeline = new RenderPipeline(device, uploadStream, downloadStream, sectionManager);
+
+        PersistentSectionStore store = null;
+        PersistentMeshLoader loader = null;
+        if (Nvidium.config.diskPersistence() && level != null) {
+            try {
+                Path root = PersistentWorldPaths.resolve(level);
+                store = new PersistentSectionStore(root, stride);
+                loader = new PersistentMeshLoader(store, this.sectionManager);
+                PersistentMeshLoader loaderRef = loader;
+                this.sectionManager.setRegionRemovedCallback(loaderRef::allowReload);
+            } catch (IOException e) {
+                Nvidium.LOGGER.error("Failed to open persistent mesh store, continuing without disk cache", e);
+                if (loader != null) {
+                    loader.close();
+                    loader = null;
+                }
+                if (store != null) {
+                    store.close();
+                    store = null;
+                }
+            }
+        }
+        this.persistentStore = store;
+        this.persistentLoader = loader;
     }
 
     public void enqueueRegionSort(int regionId) {
@@ -62,6 +101,12 @@ public class NvidiumWorldRenderer {
     }
 
     public void delete() {
+        if (this.persistentLoader != null) {
+            this.persistentLoader.close();
+        }
+        if (this.persistentStore != null) {
+            this.persistentStore.close();
+        }
         uploadStream.delete();
         downloadStream.delete();
         renderPipeline.delete();
@@ -77,6 +122,10 @@ public class NvidiumWorldRenderer {
 
         while (sectionManager.terrainAreana.getUsedMB() > (max_geometry_memory - 100)) {
             renderPipeline.removeARegion();
+        }
+
+        if (this.persistentLoader != null) {
+            this.persistentLoader.tick(x, y, z, sectionManager.terrainAreana.getUsedMB(), (int) this.max_geometry_memory);
         }
 
         if (Nvidium.SUPPORTS_PERSISTENT_SPARSE_ADDRESSABLE_BUFFER && (System.currentTimeMillis() - last_sample_time) > 60000) {
@@ -95,6 +144,7 @@ public class NvidiumWorldRenderer {
 
     public void uploadBuildResult(BuilderTaskOutput buildOutput) {
         if (buildOutput instanceof ChunkBuildOutput chunkBuildOutput) {
+            persistBuildResult(chunkBuildOutput);
             this.sectionManager.uploadChunkBuildResult(chunkBuildOutput);
         }
         if (buildOutput instanceof ChunkSortOutput chunkSortOutput && chunkSortOutput.containsNewIndexData() &&
@@ -116,6 +166,27 @@ public class NvidiumWorldRenderer {
                         this.sectionManager.terrainAreana.getAllocatedMB() :
                         this.sectionManager.terrainAreana.getUsedMB())
                 + "/"+ this.max_geometry_memory + String.format(", F: %.2f", sectionManager.terrainAreana.getFragmentation()*100));
+        debugInfo.add("Keep: " + (Nvidium.keepUntilVramLimit()
+                ? "all (VRAM)"
+                : Nvidium.farTerrainKeepChunks() + " chunks")
+                + (FarLodMods.LOADED ? ", " + FarLodMods.label() + " coexist" : "")
+                + ", GPU sections: " + this.sectionManager.getGpuSectionCount());
+        if (this.persistentStore != null) {
+            var level = net.minecraft.client.Minecraft.getInstance().level;
+            debugInfo.add("Disk: " + this.persistentStore.storedCount() + " sections, "
+                    + (this.persistentStore.diskBytes() / (1024 * 1024)) + "MB "
+                    + MeshCompressor.codecName() + "+quads, wrQ: "
+                    + this.persistentStore.pendingWrites()
+                    + (this.persistentLoader != null ? ", ldQ: " + this.persistentLoader.uploadQueue()
+                    + ", loaded: " + this.persistentLoader.loadedFromDisk() : "")
+                    + ", dirty: " + this.persistentStore.remeshWrites()
+                    + ", edits: " + PersistDirty.events()
+                    + ", pack: " + this.persistentStore.packSignature()
+                    + ", " + PersistentWorldPaths.describe(level)
+                    + (PersistImport.running() ? ", " + PersistImport.statusLine() : ""));
+        } else {
+            debugInfo.add("Disk: off");
+        }
         debugInfo.add("Regions: " + sectionManager.getRegionManager().regionCount() + "/" + sectionManager.getRegionManager().maxRegions());
         this.renderPipeline.addDebugInfo(debugInfo);
     }
@@ -145,5 +216,26 @@ public class NvidiumWorldRenderer {
 
     public int getMaxGeometryMemory() {
         return (int) max_geometry_memory;
+    }
+
+    public PersistentSectionStore getPersistentStore() {
+        return this.persistentStore;
+    }
+
+    private void persistBuildResult(ChunkBuildOutput result) {
+        if (this.persistentStore == null) {
+            return;
+        }
+        long sectionKey = SectionPos.asLong(result.section.getChunkX(), result.section.getChunkY(), result.section.getChunkZ());
+        var output = ((IRepackagedResult) result).getOutput();
+        if (output == null || output.quads() == 0) {
+            this.persistentStore.remove(sectionKey);
+            return;
+        }
+        try {
+            this.persistentStore.put(PersistentMesh.from(sectionKey, output));
+        } catch (Exception e) {
+            Nvidium.LOGGER.error("Failed to snapshot section {} for disk cache", sectionKey, e);
+        }
     }
 }
